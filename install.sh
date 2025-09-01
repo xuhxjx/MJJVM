@@ -99,7 +99,7 @@ EOF
     echo "📦 在 venv 中安装依赖..."
     "$VENV_DIR/bin/python" -m pip install --upgrade pip >/dev/null 2>&1
 
-    REQUIRED_PKG=("python-telegram-bot==20.7" "python-dotenv" "requests" "beautifulsoup4")
+    REQUIRED_PKG=("python-telegram-bot==13.14" "python-dotenv" "requests" "beautifulsoup4")
     for pkg in "${REQUIRED_PKG[@]}"; do
         PKG_NAME="${pkg%%=*}"
         if ! "$VENV_DIR/bin/python" -m pip show "$PKG_NAME" >/dev/null 2>&1; then
