@@ -23,11 +23,6 @@ URLS = {
     "亚洲区": "https://www.mjjvm.com/cart?fid=1&gid=4",
 }
 
-COOKIES = {
-    "PHPSESSID": "v1q8uqjs6vaktencselnfihpro",
-    "ZJMF_08978D820BB471C8": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyaW5mbyI6eyJpZCI6MTAsInVzZXJuYW1lIjoid3Vib285MCJ9LCJpc3MiOiJ3d3cuaWRjU21hcnQuY29tIiwiYXVkIjoid3d3LmlkY1NtYXJ0LmNvbSIsImlwIjoiMTQ1LjIzOS4yNDUuMTc1IiwiaWF0IjoxNzU1NzgwODI5LCJuYmYiOjE3NTU3ODA4MjksImV4cCI6MTc1NTc4ODAyOX0.tjJ4oTj3slAuAjiWe4-AKmdpp7jiIwqwO1SRYRWMMpE"
-}
-
 HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
     "Accept-Language": "zh-CN,zh;q=0.9",
@@ -302,7 +297,7 @@ def main_loop():
             success_this_url = False
             for attempt in range(3):
                 try:
-                    resp = requests.get(url, headers=HEADERS, cookies=COOKIES, timeout=10)
+                    resp = requests.get(url, headers=HEADERS, timeout=10)
                     resp.raise_for_status()
                     products = parse_products(resp.text, url, region)
                     all_products.update(products)
