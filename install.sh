@@ -39,7 +39,8 @@ echo "请选择操作："
 echo "1. 安装 MJJVM 监控"
 echo "2. 修改 .env 配置"
 echo "3. 卸载 MJJVM 监控"
-read -p "输入选项 [1-3]: " ACTION
+echo "4. 返回 VIP 工具箱"
+read -p "输入选项 [1-4]: " ACTION
 
 case $ACTION in
 1)
@@ -214,6 +215,9 @@ EOF
     sudo systemctl daemon-reload >/dev/null 2>&1
 
     echo "✅ 卸载完成，已删除所有相关文件"
+    ;;
+4)
+    bash <(curl -Ls https://raw.githubusercontent.com/ryty1/Checkin/refs/heads/main/1.sh)
     ;;
 *)
     echo "❌ 无效选项"
