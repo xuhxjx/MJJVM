@@ -217,7 +217,7 @@ EOF
     echo "✅ 卸载完成，已删除所有相关文件"
     ;;
 4)
-    bash <(curl -Ls https://raw.githubusercontent.com/ryty1/Checkin/refs/heads/main/1.sh)
+    bash <(curl -Ls https://raw.githubusercontent.com/ryty1/Checkin/refs/heads/main/vip.sh)
     ;;
 *)
     echo "❌ 无效选项"
