@@ -5,6 +5,7 @@ from bs4 import BeautifulSoup
 import time
 import json
 import os
+import sys
 import telegram
 from telegram.ext import Updater, CommandHandler
 import logging
@@ -47,7 +48,7 @@ TG_CHAT_IDS = os.getenv("TG_CHAT_IDS", "").split(",")
 
 INTERVAL = 120  # 秒
 DATA_FILE = "stock_data.json"
-LOG_FILE = "stock_monitor.log"
+LOG_FILE = "stock_out.log"
 
 # ---------------------------- 日志 ----------------------------
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -80,23 +81,41 @@ def group_by_region(all_products):
         grouped.setdefault(region, []).append(info)
     return grouped
 
+
+    
+# 数字会员值 -> 文字名称映射
+MEMBER_NAME_MAP = {
+    1: "社区成员",
+    2: "白银会员",
+    3: "黄金会员",
+    4: "钻石会员",
+    5: "星曜会员"
+}
 # ---------------------------- TG 消息 ----------------------------
 def send_telegram(messages):
     if not messages:
         return
+
     bot = telegram.Bot(token=TG_TOKEN)
+
     for msg in messages:
         html_msg = ""
         delete_delay = None
         reply_markup = None
         region = msg.get("region", "未知地区")
 
+        # 获取会员文字描述
+        member_text = ""
+        if msg.get("member_only", 0):
+            member_name = MEMBER_NAME_MAP.get(msg["member_only"], "会员")
+            member_text = f"要求：<b>{member_name}</b>\n"
+
         if msg["type"] == "上架":
             prefix = "🟢"
             html_msg += (
-                f"{prefix} <b>{msg['type']} - {region} - {msg['name']}</b>\n"
-                f"库存: <b>{msg['stock']}</b>\n"
-                f"会员专享: <b>{msg['member_only']}</b>\n"
+                f"{prefix} <b>{msg['type']} - {region} - {msg['name']}</b>\n\n"
+                f"库存: <b>{msg['stock']}</b>\n\n"
+                f"{member_text}"
             )
             if msg.get("config"):
                 html_msg += f"配置:\n<pre>{msg['config']}</pre>\n"
@@ -108,7 +127,7 @@ def send_telegram(messages):
             html_msg += (
                 f"{prefix} <b>{msg['type']} - {region} - {msg['name']}</b>\n"
                 f"库存: <b>{msg['stock']}</b>\n"
-                f"会员专享: <b>{msg['member_only']}</b>\n\n"
+                f"{member_text}\n"
             )
             delete_delay = 60
 
@@ -117,19 +136,21 @@ def send_telegram(messages):
             html_msg += (
                 f"{prefix} <b>{msg['type']} - {region} - {msg['name']}</b>\n"
                 f"库存: <b>{msg['stock']}</b>\n"
-                f"会员专享: <b>{msg['member_only']}</b>\n\n"
+                f"{member_text}\n"
             )
 
         for chat_id in TG_CHAT_IDS:
             try:
                 sent_msg = bot.send_message(
-                    chat_id=chat_id, text=html_msg,
+                    chat_id=chat_id,
+                    text=html_msg,
                     parse_mode=telegram.ParseMode.HTML,
                     reply_markup=reply_markup
                 )
             except Exception as e:
                 logger.error("TG 推送失败 %s: %s", chat_id, e)
                 continue
+
             if delete_delay:
                 def delete_msg_after(delay, chat_id=chat_id, message_id=sent_msg.message_id):
                     time.sleep(delay)
@@ -137,31 +158,48 @@ def send_telegram(messages):
                         bot.delete_message(chat_id=chat_id, message_id=message_id)
                     except:
                         pass
+
                 threading.Thread(target=delete_msg_after, args=(delete_delay,)).start()
+
 
 # ---------------------------- 页面解析 ----------------------------
 def parse_products(html, url, region):
+    from bs4 import BeautifulSoup
     soup = BeautifulSoup(html, "html.parser")
     products = {}
 
+    # 会员类型映射
+    MEMBER_MAP = {
+        "成员后免费": 1,      # 社区成员
+        "白银会员免费": 2,
+        "黄金会员免费": 3,
+        "钻石会员免费": 4,
+        "星曜会员免费": 5,
+    }
+
     for card in soup.select("div.card.cartitem"):
-        # 1. 标题
+        # 1. 商品名称
         name_tag = card.find("h4")
         if not name_tag:
             continue
         name = name_tag.get_text(strip=True)
 
-        # 2. 配置参数
+        # 2. 配置与会员标记
         config_items = []
-        member_only = False
+        member_only = 0  # 默认不是会员专属
         for li in card.select("ul.vps-config li"):
             text = li.get_text(" ", strip=True)
+            matched = False
 
-            # 严格匹配 “验证 MJJBOX 成员后免费”
-            if text.strip() == "🎁 验证 MJJBOX 成员后免费" or text.strip() == "验证 MJJBOX 成员后免费":
-                member_only = True
+            # 检查会员类型
+            for key, value in MEMBER_MAP.items():
+                if key in text:
+                    member_only = value
+                    matched = True
+                    break
+
+            if matched:
                 continue  # 不写入配置
-
             config_items.append(text)
 
         config = "\n".join(config_items)
@@ -185,12 +223,13 @@ def parse_products(html, url, region):
         if link_tag and "pid=" in link_tag.get("href", ""):
             pid = link_tag["href"].split("pid=")[-1]
 
+        # 6. 写入字典
         products[f"{region} - {name}"] = {
             "name": name,
-            "config": config,   # 🚫 不包含验证那行
+            "config": config,          # 不包含会员行
             "stock": stock,
             "price": price,
-            "member_only": member_only,  # ✅ 正确标记
+            "member_only": member_only, # 数字会员等级
             "url": url,
             "pid": pid,
             "region": region
@@ -198,68 +237,92 @@ def parse_products(html, url, region):
 
     return products
 
+
 # ---------------------------- /vps 命令 ----------------------------
+
 REGION_FLAGS = {
     "香港区": "🇭🇰",
     "美国区": "🇺🇸",
     "欧洲区": "🇪🇺",
-    "亚洲区": "🌏",
+    "精品区": "🌏",
 }
+
+# 固定路径
+SERVERS_JSON_PATH = "/opt/cloudive/servers.json"
+
+
+def load_servers_data():
+    """读取 Cloudive 服务器数据"""
+    if not os.path.exists(SERVERS_JSON_PATH):
+        return []
+    try:
+        with open(SERVERS_JSON_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data.get("servers", [])
+    except Exception as e:
+        logger.error("读取 servers.json 失败: %s", e)
+        return []
+
 
 def vps_command(update, context):
     """手动查看当前所有地区的商品库存"""
+    # --- 第一部分：库存数据 (MJJVM) ---
     current_data = load_previous_data()
+    mjjvm_lines = []
+
     if not current_data:
-        context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="📦 暂无库存数据，请等待下一次监控刷新。",
-            parse_mode=telegram.ParseMode.HTML
-        )
-        return
+        mjjvm_lines.append("📦 暂无库存数据，请等待下一次监控刷新。")
+    else:
+        for region, products in current_data.items():
+            flag = REGION_FLAGS.get(region, "🌍")
+            mjjvm_lines.append(f"{flag} {region}:")
+            for p in products:
+                stock = p.get("stock")
+                # 判断库存状态
+                if stock is None or stock < 0:
+                    status = "🟡"
+                    stock_text = "未知"
+                elif stock == 0:
+                    status = "🔴"
+                    stock_text = "0"
+                else:
+                    status = "🟢"
+                    stock_text = str(stock)
 
-    # 按地区分组
-    msg_lines = []
-    for region, products in current_data.items():
-        flag = REGION_FLAGS.get(region, "🌍")
-        msg_lines.append(f"{flag} {region}:")
-        for p in products:
-            stock = p.get("stock", 0)
-            if stock == 0:
-                status = "🔴"
-            elif stock > 0:
-                status = "🟢"
-            else:
-                status = "🟡"
-            vip = "会员专享" if p.get("member_only") else "公开"
-            msg_lines.append(f"   {status} {p['name']} | 库存: {stock} | {vip}")
-        msg_lines.append("")  # 区与区之间空行
+                # 判断会员等级显示
+                member_level = p.get("member_only", 0)
+                if member_level == 0:
+                    vip = "月费服务"
+                else:
+                    vip_name = MEMBER_NAME_MAP.get(member_level, "会员")
+                    vip = f"{vip_name}"
 
-    # 发送消息并保存 Message 对象，用于删除
+                name = p.get("name", "未知商品")
+                mjjvm_lines.append(f"   {status} {name} | 库存: {stock_text} | {vip}")
+            mjjvm_lines.append("")
+
+    mjjvm_block = "━━━━━━━━━━━━━━━━━━\n" + "\n".join(mjjvm_lines)
+    
+    # --- 拼接最终消息 ---
+    final_text = "🖥️ VPS库存情况：\n" + mjjvm_block
+
     sent_msg = context.bot.send_message(
         chat_id=update.effective_chat.id,
-        text="🖥️ VPS库存情况：\n━━━━━━━━━━━━━━━━━━\n" + "\n".join(msg_lines),
+        text=final_text,
         parse_mode=telegram.ParseMode.HTML
     )
 
-    # 3分钟后自动删除
+    # --- 定时删除 ---
     def delete_msg():
-        time.sleep(180)
+        time.sleep(120)
         try:
-            # 先删用户消息
-            context.bot.delete_message(
-                chat_id=update.effective_chat.id,
-                message_id=update.message.message_id
-            )
+            context.bot.delete_message(update.effective_chat.id, update.message.message_id)
         except Exception as e:
             logger.error("删除用户消息失败: %s", e)
-
-        # 等 0.5 秒再删机器人消息
         time.sleep(0.5)
         try:
-            context.bot.delete_message(
-                chat_id=update.effective_chat.id,
-                message_id=sent_msg.message_id
-            )
+            context.bot.delete_message(update.effective_chat.id, sent_msg.message_id)
+            
         except Exception as e:
             logger.error("删除机器人消息失败: %s", e)
 
@@ -279,7 +342,6 @@ def main_loop():
     global consecutive_fail_rounds
     prev_data_raw = load_previous_data()
     prev_data = {}
-    # 如果文件是按地区分组，则展开成扁平字典便于对比
     for region, plist in prev_data_raw.items():
         for p in plist:
             prev_data[f"{region} - {p['name']}"] = p
@@ -313,11 +375,11 @@ def main_loop():
                 success_count += 1
             else:
                 fail_count += 1
-                logger.error("[%s] 请求失败:, 尝试 3 次均失败", region)
+                logger.error("[%s] 请求失败: 尝试 3 次均失败", region)
 
         logger.info("本轮请求完成: 成功 %d / %d, 失败 %d", success_count, len(URLS), fail_count)
 
-        # --- 增加连续失败判断 ---
+        # --- 连续失败判断 ---
         if success_count == 0:  # 本轮全部失败
             consecutive_fail_rounds += 1
             logger.warning("本轮全部请求失败，连续失败轮数: %d", consecutive_fail_rounds)
@@ -339,10 +401,12 @@ def main_loop():
             time.sleep(INTERVAL)
             continue
 
+        # --- 生成推送消息 ---
         messages = []
         for name, info in all_products.items():
-            if not info.get("member_only", False):
-                continue
+            if info.get("member_only", 0) == 0:
+                continue  # 非会员商品不推送
+
             prev_stock = prev_data.get(name, {}).get("stock", 0)
             curr_stock = info["stock"]
             msg_type = None
@@ -352,18 +416,20 @@ def main_loop():
                 msg_type = "售罄"
             elif prev_stock != curr_stock:
                 msg_type = "库存变化"
+
             if msg_type:
                 msg = {
                     "type": msg_type,
                     "name": info["name"],
                     "stock": curr_stock,
                     "config": info.get('config', ''),
-                    "member_only": True,
+                    "member_only": info.get("member_only", 0),  # 数字会员等级
                     "url": info['url'],
                     "region": info.get("region", "未知地区")
                 }
                 messages.append(msg)
-                logger.info("%s - %s | 库存: %s | 会员专享: True", msg_type, info["name"], curr_stock)
+                member_name = MEMBER_NAME_MAP.get(info.get("member_only", 0), "会员")
+                logger.info("%s - %s  |  库存: %s  |  %s", msg_type, info["name"], curr_stock, member_name)
 
         if messages:
             send_telegram(messages)
@@ -375,7 +441,8 @@ def main_loop():
 
         logger.info("当前库存快照:")
         for name, info in all_products.items():
-            logger.info("- [%s] %s | 库存: %s | 会员专享: %s", info.get("region", "未知地区"), info["name"], info["stock"], info["member_only"])
+            member_name = MEMBER_NAME_MAP.get(info.get("member_only", 0), "会员")
+            logger.info("- [%s] %s  |  库存: %s  |  %s", info.get("region", "未知地区"), info["name"], info["stock"], member_name)
 
         time.sleep(INTERVAL)
 
