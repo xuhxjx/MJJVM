@@ -13,16 +13,16 @@ from logging.handlers import RotatingFileHandler
 import threading
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 import warnings
-from dotenv import load_dotenv
-
 
 # ---------------------------- 配置 ----------------------------
 URLS = {
-    "香港区": "https://www.mjjvm.com/cart?fid=1&gid=1",
-    "美国区": "https://www.mjjvm.com/cart?fid=1&gid=2",
-    "欧洲区": "https://www.mjjvm.com/cart?fid=1&gid=3",
-    "亚洲区": "https://www.mjjvm.com/cart?fid=1&gid=4",
+    "白银区": "https://www.mjjvm.com/cart?fid=1&gid=1",
+    "黄金区": "https://www.mjjvm.com/cart?fid=1&gid=2",
+    "钻石区": "https://www.mjjvm.com/cart?fid=1&gid=3",
+    "星耀区": "https://www.mjjvm.com/cart?fid=1&gid=4",
+    "灵车区": "https://www.mjjvm.com/cart?fid=1&gid=6",
 }
+
 
 HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
@@ -46,11 +46,23 @@ load_dotenv()
 TG_TOKEN = os.getenv("TG_TOKEN")
 TG_CHAT_IDS = os.getenv("TG_CHAT_IDS", "").split(",")
 
-INTERVAL = 120  # 秒
+INTERVAL = 20  # 秒
 DATA_FILE = "stock_data.json"
 LOG_FILE = "stock_out.log"
 
 # ---------------------------- 日志 ----------------------------
+
+warnings.filterwarnings("ignore", category=FutureWarning)
+logger = logging.getLogger("StockMonitor")
+logger.setLevel(logging.INFO)
+formatter = logging.Formatter("[%(asctime)s] %(message)s", "%Y-%m-%d %H:%M:%S")
+console_handler = logging.StreamHandler(stream=sys.stdout)
+console_handler.setFormatter(formatter)
+logger.addHandler(console_handler)
+file_handler = RotatingFileHandler(LOG_FILE, maxBytes=1*1024*1024, backupCount=1, encoding="utf-8")
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
+"""
 warnings.filterwarnings("ignore", category=FutureWarning)
 logger = logging.getLogger("StockMonitor")
 logger.setLevel(logging.INFO)
@@ -61,6 +73,7 @@ logger.addHandler(console_handler)
 file_handler = RotatingFileHandler(LOG_FILE, maxBytes=1*1024*1024, backupCount=1, encoding="utf-8")
 file_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
+"""
 
 # ---------------------------- 工具函数 ----------------------------
 def load_previous_data():
@@ -113,8 +126,9 @@ def send_telegram(messages):
         if msg["type"] == "上架":
             prefix = "🟢"
             html_msg += (
-                f"{prefix} <b>{msg['type']} - {region} - {msg['name']}</b>\n\n"
-                f"库存: <b>{msg['stock']}</b>\n\n"
+                f"{prefix} <b>{msg['type']} - {region}</b>\n\n"
+                f"名称: <b>{msg['name']}</b>\n"
+                f"库存: <b>{msg['stock']}</b>\n"
                 f"{member_text}"
             )
             if msg.get("config"):
@@ -125,7 +139,8 @@ def send_telegram(messages):
         elif msg["type"] == "库存变化":
             prefix = "🟡"
             html_msg += (
-                f"{prefix} <b>{msg['type']} - {region} - {msg['name']}</b>\n"
+                f"{prefix} <b>{msg['type']} - {region}</b>\n"
+                f"名称: <b>{msg['name']}</b>\n"
                 f"库存: <b>{msg['stock']}</b>\n"
                 f"{member_text}\n"
             )
@@ -134,7 +149,8 @@ def send_telegram(messages):
         else:  # 售罄
             prefix = "🔴"
             html_msg += (
-                f"{prefix} <b>{msg['type']} - {region} - {msg['name']}</b>\n"
+                f"{prefix} <b>{msg['type']} - {region}</b>\n"
+                f"名称: <b>{msg['name']}</b>\n"
                 f"库存: <b>{msg['stock']}</b>\n"
                 f"{member_text}\n"
             )
@@ -170,11 +186,11 @@ def parse_products(html, url, region):
 
     # 会员类型映射
     MEMBER_MAP = {
-        "成员后免费": 1,      # 社区成员
-        "白银会员免费": 2,
-        "黄金会员免费": 3,
-        "钻石会员免费": 4,
-        "星曜会员免费": 5,
+        "成员": 1,      # 社区成员
+        "白银会员": 2,
+        "黄金会员": 3,
+        "钻石会员": 4,
+        "星曜会员": 5,
     }
 
     for card in soup.select("div.card.cartitem"):
@@ -241,10 +257,11 @@ def parse_products(html, url, region):
 # ---------------------------- /vps 命令 ----------------------------
 
 REGION_FLAGS = {
-    "香港区": "🇭🇰",
-    "美国区": "🇺🇸",
-    "欧洲区": "🇪🇺",
-    "精品区": "🌏",
+    "白银区": "🥈",
+    "黄金区": "🏅",
+    "钻石区": "💎",
+    "星耀区": "🏆",
+    "灵车区": "🎁",
 }
 
 # 固定路径
@@ -314,7 +331,7 @@ def vps_command(update, context):
 
     # --- 定时删除 ---
     def delete_msg():
-        time.sleep(120)
+        time.sleep(60)
         try:
             context.bot.delete_message(update.effective_chat.id, update.message.message_id)
         except Exception as e:
