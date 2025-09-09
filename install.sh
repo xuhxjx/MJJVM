@@ -8,7 +8,7 @@ BOT_DIR="/opt/mjjvm"
 ENV_FILE="$BOT_DIR/.env"
 VENV_DIR="$BOT_DIR/mjjvm-venv"
 SERVICE_FILE="/etc/systemd/system/mjjvm.service"
-SCRIPT_URL="https://raw.githubusercontent.com/ryty1/MJJVM/main/2.py"
+SCRIPT_URL="https://raw.githubusercontent.com/xuhxjx/MJJVM/main/2.py"
 SCRIPT_PATH="$BOT_DIR/2.py"
 
 
@@ -217,7 +217,7 @@ EOF
     echo "✅ 卸载完成，已删除所有相关文件"
     ;;
 4)
-    bash <(curl -Ls https://raw.githubusercontent.com/ryty1/Checkin/refs/heads/main/vip.sh)
+    bash <(curl -Ls https://raw.githubusercontent.com/xuhxjx/Checkin/refs/heads/main/vip.sh)
     ;;
 *)
     echo "❌ 无效选项"
