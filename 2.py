@@ -1,5 +1,6 @@
 #!/opt/mjjvm/mjjvm-venv/bin/python3
 # -*- coding: utf-8 -*-
+from dotenv import load_dotenv
 import requests
 from bs4 import BeautifulSoup
 import time
