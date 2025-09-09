@@ -3,7 +3,7 @@
 ### 一键安装
 
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/ryty1/MJJVM/refs/heads/main/install.sh)
+bash <(curl -Ls https://raw.githubusercontent.com/xuhxjx/MJJVM/refs/heads/main/install.sh)
 ```
 ### ENV 说明
 
