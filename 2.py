@@ -20,7 +20,7 @@ URLS = {
     "黄金区": "https://www.mjjvm.com/cart?fid=1&gid=2",
     "钻石区": "https://www.mjjvm.com/cart?fid=1&gid=3",
     "星耀区": "https://www.mjjvm.com/cart?fid=1&gid=4",
-    "灵车区": "https://www.mjjvm.com/cart?fid=1&gid=6",
+    "特别活动区": "https://www.mjjvm.com/cart?fid=1&gid=6",
 }
 
 
@@ -46,7 +46,7 @@ load_dotenv()
 TG_TOKEN = os.getenv("TG_TOKEN")
 TG_CHAT_IDS = os.getenv("TG_CHAT_IDS", "").split(",")
 
-INTERVAL = 20  # 秒
+INTERVAL = 60  # 秒
 DATA_FILE = "stock_data.json"
 LOG_FILE = "stock_out.log"
 
@@ -261,7 +261,7 @@ REGION_FLAGS = {
     "黄金区": "🏅",
     "钻石区": "💎",
     "星耀区": "🏆",
-    "灵车区": "🎁",
+    "特别活动区": "🎁",
 }
 
 # 固定路径
