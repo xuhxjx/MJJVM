@@ -40,7 +40,6 @@ HEADERS = {
     "Sec-Fetch-User": "?1",
     "Upgrade-Insecure-Requests": "1",
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
-    "Cookie": "PHPSESSID=ru5ro1s25c8233p3e91k28j1ec; ZJMF_08978D820BB471C8=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyaW5mbyI6eyJpZCI6MjA0LCJ1c2VybmFtZSI6Imh4angifSwiaXNzIjoid3d3LmlkY1NtYXJ0LmNvbSIsImF1ZCI6Ind3dy5pZGNTbWFydC5jb20iLCJpcCI6IjIzLjE0Ni40MC42NyIsImlhdCI6MTc1NzQ5MDU0MCwibmJmIjoxNzU3NDkwNTQwLCJleHAiOjE3NTc0OTc3NDB9.2jRw3Yj1vyp3h-DTb5KCkih7nfNfiqW6NzVByncZsZo; cf_clearance=tbMuHLsnBhg53fkR.Pj0F65WszsNbWN._Y7mOuqo4J4-1757497591-1.2.1.1-NDBxkqN0wsVKalN8unPJVA0.Nb_asK9eQExclJMPR9Yf6vj5FZhZ2nhM2QtOZawU__FQu3IggpbhqI8F6ZCEZxe3rmzTPS_AfiXukhP1bxmtawKTF0DqpyYEmNDxyWvqDRGObmIKz_19.qHRY_ztZ7YGaGR4dkBDN8hS.dHVkp4yXRkEyrYF6Uv3iKqd2_uGRMBgX7bJ5WYEcykWAxxn3HFZxcHIQceQplapgq89yOg" # <--- 在这里粘贴你最新的Cookie
 }
 
 # 加载 .env 文件
