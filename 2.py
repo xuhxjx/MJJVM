@@ -14,6 +14,7 @@ from logging.handlers import RotatingFileHandler
 import threading
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 import warnings
+import cloudscraper # <--- 改动 1: 导入新工具
 
 # ---------------------------- 配置 ----------------------------
 URLS = {
@@ -63,19 +64,6 @@ console_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
 file_handler = RotatingFileHandler(LOG_FILE, maxBytes=1*1024*1024, backupCount=1, encoding="utf-8")
 file_handler.setFormatter(formatter)
-logger.addHandler(file_handler)
-"""
-warnings.filterwarnings("ignore", category=FutureWarning)
-logger = logging.getLogger("StockMonitor")
-logger.setLevel(logging.INFO)
-formatter = logging.Formatter("[%(asctime)s] %(message)s", "%Y-%m-%d %H:%M:%S")
-console_handler = logging.StreamHandler()
-console_handler.setFormatter(formatter)
-logger.addHandler(console_handler)
-file_handler = RotatingFileHandler(LOG_FILE, maxBytes=1*1024*1024, backupCount=1, encoding="utf-8")
-file_handler.setFormatter(formatter)
-logger.addHandler(file_handler)
-"""
 
 # ---------------------------- 工具函数 ----------------------------
 def load_previous_data():
@@ -97,7 +85,6 @@ def group_by_region(all_products):
     return grouped
 
 
-    
 # 数字会员值 -> 文字名称映射
 MEMBER_NAME_MAP = {
     1: "社区成员",
@@ -317,7 +304,7 @@ def vps_command(update, context):
                     vip = f"{vip_name}"
 
                 name = p.get("name", "未知商品")
-                mjjvm_lines.append(f"   {status} {name} | 库存: {stock_text} | {vip}")
+                mjjvm_lines.append(f"    {status} {name} | 库存: {stock_text} | {vip}")
             mjjvm_lines.append("")
 
     mjjvm_block = "━━━━━━━━━━━━━━━━━━\n" + "\n".join(mjjvm_lines)
@@ -366,6 +353,8 @@ def main_loop():
             prev_data[f"{region} - {p['name']}"] = p
 
     logger.info("库存监控启动，每 %s 秒检查一次...", INTERVAL)
+    
+    scraper = cloudscraper.create_scraper() # <--- 改动 2: 创建 scraper 实例
 
     while True:
         logger.info("正在检查库存...")
@@ -378,7 +367,8 @@ def main_loop():
             success_this_url = False
             for attempt in range(3):
                 try:
-                    resp = requests.get(url, headers=HEADERS, timeout=10)
+                    # <--- 改动 3: 使用 scraper.get 替代 requests.get
+                    resp = scraper.get(url, headers=HEADERS, timeout=10)
                     resp.raise_for_status()
                     products = parse_products(resp.text, url, region)
                     all_products.update(products)
@@ -448,7 +438,7 @@ def main_loop():
                 }
                 messages.append(msg)
                 member_name = MEMBER_NAME_MAP.get(info.get("member_only", 0), "会员")
-                logger.info("%s - %s  |  库存: %s  |  %s", msg_type, info["name"], curr_stock, member_name)
+                logger.info("%s - %s   |   库存: %s   |   %s", msg_type, info["name"], curr_stock, member_name)
 
         if messages:
             send_telegram(messages)
@@ -461,7 +451,7 @@ def main_loop():
         logger.info("当前库存快照:")
         for name, info in all_products.items():
             member_name = MEMBER_NAME_MAP.get(info.get("member_only", 0), "会员")
-            logger.info("- [%s] %s  |  库存: %s  |  %s", info.get("region", "未知地区"), info["name"], info["stock"], member_name)
+            logger.info("- [%s] %s   |   库存: %s   |   %s", info.get("region", "未知地区"), info["name"], info["stock"], member_name)
 
         time.sleep(INTERVAL)
 
