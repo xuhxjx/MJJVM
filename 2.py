@@ -14,7 +14,7 @@ from logging.handlers import RotatingFileHandler
 import threading
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 import warnings
-import cloudscraper # <--- 改动 1: 导入新工具
+import cloudscraper
 
 # ---------------------------- 配置 ----------------------------
 URLS = {
