@@ -14,7 +14,6 @@ from logging.handlers import RotatingFileHandler
 import threading
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 import warnings
-import cloudscraper
 
 # ---------------------------- 配置 ----------------------------
 URLS = {
@@ -25,21 +24,9 @@ URLS = {
     "特别活动区": "https://www.mjjvm.com/cart?fid=1&gid=6",
 }
 
-
+# 使用一个最简单的 User-Agent 来模拟浏览器
 HEADERS = {
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-    "Accept-Language": "zh-CN,zh;q=0.9",
-    "Cache-Control": "max-age=0",
-    "Referer": "https://www.mjjvm.com",
-    "Sec-CH-UA": '"Not;A=Brand";v="99", "Google Chrome";v="139", "Chromium";v="139"',
-    "Sec-CH-UA-Mobile": "?0",
-    "Sec-CH-UA-Platform": '"macOS"',
-    "Sec-Fetch-Dest": "document",
-    "Sec-Fetch-Mode": "navigate",
-    "Sec-Fetch-Site": "same-origin",
-    "Sec-Fetch-User": "?1",
-    "Upgrade-Insecure-Requests": "1",
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
 }
 
 # 加载 .env 文件
@@ -53,7 +40,6 @@ DATA_FILE = "stock_data.json"
 LOG_FILE = "stock_out.log"
 
 # ---------------------------- 日志 ----------------------------
-
 warnings.filterwarnings("ignore", category=FutureWarning)
 logger = logging.getLogger("StockMonitor")
 logger.setLevel(logging.INFO)
@@ -76,13 +62,11 @@ def save_data(data):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 def group_by_region(all_products):
-    """把扁平字典按地区分组为列表"""
     grouped = {}
     for key, info in all_products.items():
         region = info.get("region", "未知地区")
         grouped.setdefault(region, []).append(info)
     return grouped
-
 
 # 数字会员值 -> 文字名称映射
 MEMBER_NAME_MAP = {
@@ -92,25 +76,21 @@ MEMBER_NAME_MAP = {
     4: "钻石会员",
     5: "星曜会员"
 }
+
 # ---------------------------- TG 消息 ----------------------------
 def send_telegram(messages):
     if not messages:
         return
-
     bot = telegram.Bot(token=TG_TOKEN)
-
     for msg in messages:
         html_msg = ""
         delete_delay = None
         reply_markup = None
         region = msg.get("region", "未知地区")
-
-        # 获取会员文字描述
         member_text = ""
         if msg.get("member_only", 0):
             member_name = MEMBER_NAME_MAP.get(msg["member_only"], "会员")
             member_text = f"要求：<b>{member_name}</b>\n"
-
         if msg["type"] == "上架":
             prefix = "🟢"
             html_msg += (
@@ -123,7 +103,6 @@ def send_telegram(messages):
                 html_msg += f"配置:\n<pre>{msg['config']}</pre>\n"
             button = InlineKeyboardButton(text="快速进入通道", url=msg['url'])
             reply_markup = InlineKeyboardMarkup([[button]])
-
         elif msg["type"] == "库存变化":
             prefix = "🟡"
             html_msg += (
@@ -133,7 +112,6 @@ def send_telegram(messages):
                 f"{member_text}\n"
             )
             delete_delay = 60
-
         else:  # 售罄
             prefix = "🔴"
             html_msg += (
@@ -142,19 +120,16 @@ def send_telegram(messages):
                 f"库存: <b>{msg['stock']}</b>\n"
                 f"{member_text}\n"
             )
-
         for chat_id in TG_CHAT_IDS:
             try:
                 sent_msg = bot.send_message(
-                    chat_id=chat_id,
-                    text=html_msg,
+                    chat_id=chat_id, text=html_msg,
                     parse_mode=telegram.ParseMode.HTML,
                     reply_markup=reply_markup
                 )
             except Exception as e:
                 logger.error("TG 推送失败 %s: %s", chat_id, e)
                 continue
-
             if delete_delay:
                 def delete_msg_after(delay, chat_id=chat_id, message_id=sent_msg.message_id):
                     time.sleep(delay)
@@ -162,53 +137,61 @@ def send_telegram(messages):
                         bot.delete_message(chat_id=chat_id, message_id=message_id)
                     except:
                         pass
-
                 threading.Thread(target=delete_msg_after, args=(delete_delay,)).start()
 
-
-# ---------------------------- 页面解析 ----------------------------
+# ---------------------------- 页面解析 (核心修改) ----------------------------
 def parse_products(html, url, region):
-    from bs4 import BeautifulSoup
     soup = BeautifulSoup(html, "html.parser")
     products = {}
 
-    # 会员类型映射
-    MEMBER_MAP = {
-        "成员": 1,      # 社区成员
-        "白银会员": 2,
-        "黄金会员": 3,
-        "钻石会员": 4,
-        "星曜会员": 5,
-    }
+    # --- 智能版块识别 ---
+    # 尝试多种可能的CSS选择器来寻找商品卡片
+    possible_selectors = [
+        "div.card.cartitem",      # 旧的选择器
+        "div.product-item",       # 常见的新名称
+        "div.product-card",       # 另一种常见名称
+        "div.col-lg-4.col-md-6",  # 基于布局的猜测
+        "div.item"                # 最通用的名称
+    ]
+    
+    product_cards = []
+    for selector in possible_selectors:
+        product_cards = soup.select(selector)
+        if product_cards:
+            logger.info("[%s] 成功找到商品版块，使用选择器: %s", region, selector)
+            break
+            
+    if not product_cards:
+        logger.error("[%s] 警告：在页面上找不到任何已知的商品版块！", region)
+        # --- 黑匣子调试功能 ---
+        debug_filename = f"debug_{region}.html"
+        with open(debug_filename, "w", encoding="utf-8") as f:
+            f.write(html)
+        logger.error("[%s] 已将获取到的HTML内容保存到 %s 文件中，请检查网页结构。", region, debug_filename)
+        return products # 返回空字典
 
-    for card in soup.select("div.card.cartitem"):
-        # 1. 商品名称
+    # 会员类型映射
+    MEMBER_MAP = { "成员": 1, "白银会员": 2, "黄金会员": 3, "钻石会员": 4, "星曜会员": 5 }
+
+    for card in product_cards:
         name_tag = card.find("h4")
-        if not name_tag:
-            continue
+        if not name_tag: continue
         name = name_tag.get_text(strip=True)
 
-        # 2. 配置与会员标记
         config_items = []
-        member_only = 0  # 默认不是会员专属
+        member_only = 0
         for li in card.select("ul.vps-config li"):
             text = li.get_text(" ", strip=True)
             matched = False
-
-            # 检查会员类型
             for key, value in MEMBER_MAP.items():
                 if key in text:
                     member_only = value
                     matched = True
                     break
-
-            if matched:
-                continue  # 不写入配置
+            if matched: continue
             config_items.append(text)
-
         config = "\n".join(config_items)
 
-        # 3. 库存
         stock_tag = card.find("p", class_="card-text")
         stock = 0
         if stock_tag:
@@ -217,49 +200,25 @@ def parse_products(html, url, region):
             except:
                 stock = 0
 
-        # 4. 价格
         price_tag = card.select_one("a.cart-num")
         price = price_tag.get_text(strip=True) if price_tag else "未知"
-
-        # 5. pid
         link_tag = card.select_one("div.card-footer a")
         pid = None
         if link_tag and "pid=" in link_tag.get("href", ""):
             pid = link_tag["href"].split("pid=")[-1]
 
-        # 6. 写入字典
         products[f"{region} - {name}"] = {
-            "name": name,
-            "config": config,          # 不包含会员行
-            "stock": stock,
-            "price": price,
-            "member_only": member_only, # 数字会员等级
-            "url": url,
-            "pid": pid,
-            "region": region
+            "name": name, "config": config, "stock": stock, "price": price,
+            "member_only": member_only, "url": url, "pid": pid, "region": region
         }
-
     return products
 
-
 # ---------------------------- /vps 命令 ----------------------------
-
-REGION_FLAGS = {
-    "白银区": "🥈",
-    "黄金区": "🏅",
-    "钻石区": "💎",
-    "星耀区": "🏆",
-    "特别活动区": "🎁",
-}
-
-# 固定路径
+REGION_FLAGS = { "白银区": "🥈", "黄金区": "🏅", "钻石区": "💎", "星耀区": "🏆", "特别活动区": "🎁" }
 SERVERS_JSON_PATH = "/opt/cloudive/servers.json"
 
-
 def load_servers_data():
-    """读取 Cloudive 服务器数据"""
-    if not os.path.exists(SERVERS_JSON_PATH):
-        return []
+    if not os.path.exists(SERVERS_JSON_PATH): return []
     try:
         with open(SERVERS_JSON_PATH, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -268,13 +227,9 @@ def load_servers_data():
         logger.error("读取 servers.json 失败: %s", e)
         return []
 
-
 def vps_command(update, context):
-    """手动查看当前所有地区的商品库存"""
-    # --- 第一部分：库存数据 (MJJVM) ---
     current_data = load_previous_data()
     mjjvm_lines = []
-
     if not current_data:
         mjjvm_lines.append("📦 暂无库存数据，请等待下一次监控刷新。")
     else:
@@ -283,41 +238,21 @@ def vps_command(update, context):
             mjjvm_lines.append(f"{flag} {region}:")
             for p in products:
                 stock = p.get("stock")
-                # 判断库存状态
-                if stock is None or stock < 0:
-                    status = "🟡"
-                    stock_text = "未知"
-                elif stock == 0:
-                    status = "🔴"
-                    stock_text = "0"
-                else:
-                    status = "🟢"
-                    stock_text = str(stock)
-
-                # 判断会员等级显示
+                if stock is None or stock < 0: status, stock_text = "🟡", "未知"
+                elif stock == 0: status, stock_text = "🔴", "0"
+                else: status, stock_text = "🟢", str(stock)
                 member_level = p.get("member_only", 0)
-                if member_level == 0:
-                    vip = "月费服务"
-                else:
-                    vip_name = MEMBER_NAME_MAP.get(member_level, "会员")
-                    vip = f"{vip_name}"
-
+                if member_level == 0: vip = "月费服务"
+                else: vip = MEMBER_NAME_MAP.get(member_level, "会员")
                 name = p.get("name", "未知商品")
                 mjjvm_lines.append(f"    {status} {name} | 库存: {stock_text} | {vip}")
             mjjvm_lines.append("")
-
     mjjvm_block = "━━━━━━━━━━━━━━━━━━\n" + "\n".join(mjjvm_lines)
-    
-    # --- 拼接最终消息 ---
     final_text = "🖥️ VPS库存情况：\n" + mjjvm_block
-
     sent_msg = context.bot.send_message(
-        chat_id=update.effective_chat.id,
-        text=final_text,
+        chat_id=update.effective_chat.id, text=final_text,
         parse_mode=telegram.ParseMode.HTML
     )
-
-    # --- 定时删除 ---
     def delete_msg():
         time.sleep(60)
         try:
@@ -327,10 +262,8 @@ def vps_command(update, context):
         time.sleep(0.5)
         try:
             context.bot.delete_message(update.effective_chat.id, sent_msg.message_id)
-            
         except Exception as e:
             logger.error("删除机器人消息失败: %s", e)
-
     threading.Thread(target=delete_msg, daemon=True).start()
 
 # ---------------------------- TG Bot 启动 ----------------------------
@@ -341,8 +274,7 @@ def start_telegram_bot():
     updater.start_polling()
 
 # ---------------------------- 主循环 ----------------------------
-consecutive_fail_rounds = 0  # 放在 main_loop() 外部，保持状态
-
+consecutive_fail_rounds = 0
 def main_loop():
     global consecutive_fail_rounds
     prev_data_raw = load_previous_data()
@@ -352,22 +284,16 @@ def main_loop():
             prev_data[f"{region} - {p['name']}"] = p
 
     logger.info("库存监控启动，每 %s 秒检查一次...", INTERVAL)
-    
-    scraper = cloudscraper.create_scraper() # <--- 改动 2: 创建 scraper 实例
-
     while True:
         logger.info("正在检查库存...")
         all_products = {}
         success_count = 0
         fail_count = 0
-        success = False
-
         for region, url in URLS.items():
             success_this_url = False
             for attempt in range(3):
                 try:
-                    # <--- 改动 3: 使用 scraper.get 替代 requests.get
-                    resp = scraper.get(url, headers=HEADERS, timeout=10)
+                    resp = requests.get(url, headers=HEADERS, timeout=10) # 使用最简单的 requests
                     resp.raise_for_status()
                     products = parse_products(resp.text, url, region)
                     all_products.update(products)
@@ -377,81 +303,58 @@ def main_loop():
                 except Exception as e:
                     logger.warning("[%s] 请求失败 (第 %d 次尝试): %s", region, attempt + 1, e)
                     time.sleep(2)
-
-            if success_this_url:
-                success = True
-                success_count += 1
+            if success_this_url: success_count += 1
             else:
                 fail_count += 1
                 logger.error("[%s] 请求失败: 尝试 3 次均失败", region)
 
         logger.info("本轮请求完成: 成功 %d / %d, 失败 %d", success_count, len(URLS), fail_count)
-
-        # --- 连续失败判断 ---
-        if success_count == 0:  # 本轮全部失败
+        if success_count == 0:
             consecutive_fail_rounds += 1
             logger.warning("本轮全部请求失败，连续失败轮数: %d", consecutive_fail_rounds)
         else:
-            consecutive_fail_rounds = 0  # 本轮成功，重置计数
-
+            consecutive_fail_rounds = 0
+        
         if consecutive_fail_rounds >= 10:
             try:
                 bot = telegram.Bot(token=TG_TOKEN)
-                alert_msg = f"⚠️ 警告：库存监控请求失败，请检查网络或服务器！"
-                for chat_id in TG_CHAT_IDS:
-                    bot.send_message(chat_id=chat_id, text=alert_msg)
-            except Exception as e:
-                logger.error("TG报警发送失败: %s", e)
-            consecutive_fail_rounds = 0  # 触发报警后重置
-
-        if not success:
+                alert_msg = "⚠️ 警告：库存监控请求失败，请检查网络或服务器！"
+                for chat_id in TG_CHAT_IDS: bot.send_message(chat_id=chat_id, text=alert_msg)
+            except Exception as e: logger.error("TG报警发送失败: %s", e)
+            consecutive_fail_rounds = 0
+            
+        if success_count == 0:
             logger.warning("本轮请求全部失败，跳过数据更新。")
             time.sleep(INTERVAL)
             continue
 
-        # --- 生成推送消息 ---
         messages = []
         for name, info in all_products.items():
-            if info.get("member_only", 0) == 0:
-                continue  # 非会员商品不推送
-
+            if info.get("member_only", 0) == 0: continue
             prev_stock = prev_data.get(name, {}).get("stock", 0)
             curr_stock = info["stock"]
             msg_type = None
-            if prev_stock == 0 and curr_stock > 0:
-                msg_type = "上架"
-            elif prev_stock > 0 and curr_stock == 0:
-                msg_type = "售罄"
-            elif prev_stock != curr_stock:
-                msg_type = "库存变化"
-
+            if prev_stock == 0 and curr_stock > 0: msg_type = "上架"
+            elif prev_stock > 0 and curr_stock == 0: msg_type = "售罄"
+            elif prev_stock != curr_stock: msg_type = "库存变化"
             if msg_type:
                 msg = {
-                    "type": msg_type,
-                    "name": info["name"],
-                    "stock": curr_stock,
-                    "config": info.get('config', ''),
-                    "member_only": info.get("member_only", 0),  # 数字会员等级
-                    "url": info['url'],
-                    "region": info.get("region", "未知地区")
+                    "type": msg_type, "name": info["name"], "stock": curr_stock,
+                    "config": info.get('config', ''), "member_only": info.get("member_only", 0),
+                    "url": info['url'], "region": info.get("region", "未知地区")
                 }
                 messages.append(msg)
                 member_name = MEMBER_NAME_MAP.get(info.get("member_only", 0), "会员")
                 logger.info("%s - %s   |   库存: %s   |   %s", msg_type, info["name"], curr_stock, member_name)
 
-        if messages:
-            send_telegram(messages)
-
-        # 保存前转换格式
+        if messages: send_telegram(messages)
         grouped_data = group_by_region(all_products)
         save_data(grouped_data)
         prev_data = all_products
-
         logger.info("当前库存快照:")
         for name, info in all_products.items():
             member_name = MEMBER_NAME_MAP.get(info.get("member_only", 0), "会员")
             logger.info("- [%s] %s   |   库存: %s   |   %s", info.get("region", "未知地区"), info["name"], info["stock"], member_name)
-
         time.sleep(INTERVAL)
 
 # ---------------------------- 启动 ----------------------------
